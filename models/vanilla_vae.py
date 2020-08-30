@@ -61,7 +61,8 @@ class VanillaVAE(nn.Module):
             nn.ConvTranspose2d(hidden_channels[-1], hidden_channels[-1], 4, 2, 1),
             nn.LeakyReLU(0.2, True),
             nn.Conv2d(hidden_channels[-1], in_channels, 3, 1, 1),
-            nn.Tanh()
+            # nn.Tanh() # for other images normalized in [-1,1]
+            # nn.Sigmoid(), # images in dSprites dataset is binary
         ))
         self.dNet = nn.Sequential(*modules)
 
@@ -92,6 +93,7 @@ class VanillaVAE(nn.Module):
     def get_loss(self, original_x, reconst, mu, logvar, *args, **kws):
         kl_loss = torch.mean(-0.5* torch.sum(1 + logvar - mu **2 - logvar.exp(), dim = 1), dim=0)
         reconst_loss = F.mse_loss(original_x, reconst, reduction="sum")
+        reconst_loss = reconst_loss * original_x.size(0) # scale up reconst loss
         return {"total_loss": kl_loss + reconst_loss, "kl_loss": kl_loss, "reconst_loss": reconst_loss}
 
     def generate(self, x):

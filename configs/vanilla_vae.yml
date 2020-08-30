@@ -16,14 +16,14 @@ data_params:
   num_workers: 4
 
 training_params:
-  epochs: 5
+  epochs: 60
   lr: 0.0001
   use_cuda: true
   optimizer: adam
   betas: [0.9, 0.999]
   momentum: 0.0
   lr_decay_weight: 0.5
-  decay_step: 3
+  decay_step: 20
 
 save_params:
   num_iter_save_model: 2

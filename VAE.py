@@ -50,6 +50,7 @@ lr = config["training_params"]["lr"]
 cuda = config["training_params"]["use_cuda"]
 epochs = config["training_params"]["epochs"]
 lr_decay_weight = config["training_params"]["lr_decay_weight"]
+decay_step = config["training_params"]["decay_step"]
 betas = config["training_params"]["betas"]
 
 # save parameters
@@ -68,7 +69,7 @@ if cuda:
     vae.cuda()
 
 optimizer = optim.Adam(vae.parameters(), lr = lr, betas=tuple(betas))
-lr_scheduler = optim.lr_scheduler.StepLR(optimizer, 10, gamma=lr_decay_weight)
+lr_scheduler = optim.lr_scheduler.StepLR(optimizer, decay_step, gamma=lr_decay_weight)
 
 writer = SummaryWriter(save_root)
 iter_step = 0
