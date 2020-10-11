@@ -1,4 +1,5 @@
-save*
-!save
+logs/*
 .vscode
 __pycache__
+test*
+.ipynb_checkpoints/
