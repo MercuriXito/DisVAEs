@@ -2,6 +2,7 @@ import numpy as np
 from torch.utils.data import DataLoader, Dataset
 import torchvision.transforms as T
 from torchvision.datasets import MNIST
+import torch
 
 import skimage.transform as st
 from utils import TensorImageUtils
@@ -10,7 +11,7 @@ import h5py
 
 test_root = "/home/victorchen/workspace/Venus/dsprites_ndarray_co1sh3sc6or40x32y32_64x64.hdf5"
 test_npz_root = "/home/victorchen/workspace/Venus/dsprites_ndarray_co1sh3sc6or40x32y32_64x64.npz"
-test_mnist_root = "/home/victorchen/workspace/Venus/torch_download"
+test_mnist_root = "/home/victorchen/workspace/Venus/torch_download/MNIST"
 
 # --------------------- Dataset -----------------------
 class Hdf5Dataset(Dataset):
@@ -48,6 +49,8 @@ class dSprites_h5py(Dataset):
         self.with_classes = with_classes
         self.with_values = with_values
 
+        # self.f = h5py.File(self.root, "r")
+
     def __len__(self):
         if not hasattr(self, "size"):
             with h5py.File(self.root, "r") as f:
@@ -55,13 +58,24 @@ class dSprites_h5py(Dataset):
         return self.size
 
     def __getitem__(self, idx):
-        assert idx >= 0 and idx < self.size, "idx {} out of range".format(idx)
+
+        # image = self.f["imgs"][idx, :] * 255.0
+        # clss = self.f["latents/classes"][idx, :] # class already one-hotted
+        # value = self.f["latents/values"][idx, :]
+
         with h5py.File(self.root, "r") as f:
-            images = f["imgs"][idx, :]
+            image = f["imgs"][idx, :] * 255
+            clss = f["latents/classes"][idx, :] # class already one-hotted
+            value = f["latents/values"][idx, :]
 
         if self.transform:
-            images = self.transform(images)
-        return images, 0 # add labels later
+            image = self.transform(image)
+        if self.target_transform:
+            clss, value = self.target_transform(clss, value)
+        return image, (clss, value)
+
+    def close(self):
+        self.f.close()
 
     def next_batch(self, batch_size = 64, shuffle = True):
         """ Simple Generator of Batch Loading, without transformation
@@ -87,9 +101,15 @@ class DSprites_npz(Dataset):
         self.transform = transform
         self.target_transform = target_transform
 
-        self.files = np.load(root)
+        self.files = np.load(root, allow_pickle=True, encoding="latin1")
         self.images = self.files["imgs"]
         self.size = self.images.shape[0]
+        self.values = self.files["latents_values"]
+        self.classes = self.files["latents_classes"]
+
+        # additional information
+        self.meta = self.files["metadata"][()]
+        self.latent_sizes = self.meta["latents_sizes"]
 
     def __len__(self):
         return self.size
@@ -97,10 +117,15 @@ class DSprites_npz(Dataset):
     def __getitem__(self, idx):
 
         assert idx >= 0 and idx < self.__len__(), "idx {} out of range".format(idx)
-        image = self.images[idx, :]
+        image = self.images[idx, :] * 255
+        clss = self.classes[idx, :]
+        value = self.values[idx, :]
+
         if self.transform:
             image = self.transform(image)
-        return image, 0 # add labels further
+        if self.target_transform:
+            clss, value = self.target_transform(clss, value)
+        return image, (clss, value) # add labels further
 
 # --------------------- Transform -----------------------
 
@@ -115,6 +140,17 @@ class ResizeArrImage(object):
     def __call__(self, images):
         return st.resize(images, self.size)
 
+class SingleArrToTensor:
+    """ convert ndarray images with single channel to tensor
+    """
+    def __call__(self, image):
+        return torch.from_numpy(image).unsqueeze(dim=0).type(torch.float32)
+
+class ReNormalize:
+    def __call__(self, image):
+        image = image / 255.0
+        return image * 2 - 1
+
 # --------------------- Data Loader -----------------------
 
 def get_dspritesh5py_dataloader(root, batch_size, num_workers, resize = 32):
@@ -127,11 +163,13 @@ def get_dspritesh5py_dataloader(root, batch_size, num_workers, resize = 32):
 
 def get_dspritesnpz_dataloader(root, batch_size, num_workers, resize = 32):
     trainset = DSprites_npz(root, transform=T.Compose([
-        ResizeArrImage(resize), 
-        T.ToTensor()
+        T.ToPILImage(),
+        T.Resize(resize),
+        T.ToTensor(),
+        T.Normalize((0.5,),(0.5,)),
     ]))
 
-    return DataLoader(trainset, batch_size=batch_size, shuffle=True, num_workers=num_workers)
+    return DataLoader(trainset, batch_size=batch_size, shuffle=True, num_workers=num_workers, drop_last=True)
 
 def get_mnist_dataloader(root, batch_size, num_workers, resize = 32):
     trainset = MNIST(root, train = True, transform=T.Compose([
@@ -139,18 +177,18 @@ def get_mnist_dataloader(root, batch_size, num_workers, resize = 32):
         T.ToTensor(),
         T.Normalize((0.5,),(0.5,)),
     ]))
-    return DataLoader(trainset, batch_size=batch_size, shuffle=True, num_workers=num_workers)
+    return DataLoader(trainset, batch_size=batch_size, shuffle=True, num_workers=num_workers, drop_last=True)
 
 
-def get_loader(config):
-    data_name = config["data_params"]["data_name"]
-    data_root = config["data_params"]["datapath"]
+def get_loader(opt):
+    data_name = opt.data_name
+    data_root = opt.data_path
 
-    batch_size = config["data_params"]["batch_size"]
-    grid_row = config["data_params"]["grid_nrow"]
-    num_workers = config["data_params"]["num_workers"]
-    shuffle = config["data_params"]["shuffle"]
-    resize = tuple(config["data_params"]["input_size"])
+    batch_size = opt.batch_size
+    num_workers = opt.num_workers
+    shuffle = opt.shuffle
+    size = opt.input_size
+    resize = (size, size)
 
     if data_name == "mnist":
         # loader, persistor
@@ -161,8 +199,10 @@ def get_loader(config):
         ]))
     elif data_name == "dsprites":
         trainset = DSprites_npz(data_root, transform=T.Compose([
-            ResizeArrImage(resize),
+            T.ToPILImage(),
+            T.Resize(resize),
             T.ToTensor(),
+            T.Normalize((0.5,),(0.5,)),
         ]))
     else:
         raise NotImplementedError("Not supported dataset: {}".format(data_name))
@@ -170,15 +210,14 @@ def get_loader(config):
     loader = DataLoader(trainset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
     return loader
 
-def get_utiler(data_name, save_root):
+def get_utiler(data_name, save_root="./"):
 
     preprocess_func = None
     normalize = True
     img_range = (-1,1)
 
     if data_name == "dsprites":
-        preprocess_func = lambda x: x * 255.0
-        normalize = False
+        pass
     elif data_name == "mnist":
         pass
     else:
@@ -190,22 +229,32 @@ def get_utiler(data_name, save_root):
 
 def test_loader():
     import matplotlib.pyplot as plt
+    from opt import _MetaOptions
 
     # loader = get_mnist_dataloader(test_mnist_root, 8, 4, 64)
-    # utiler = TensorImageUtils()
-    loader = get_dspritesnpz_dataloader(test_npz_root, 64, 4, 64)
-    preprocess_func = lambda x: x * 255.0
-    utiler = TensorImageUtils(preprocess_func=preprocess_func, normalize=False)
+    loader = get_loader(_MetaOptions.kws2opts(
+            data_name="dsprites",
+            data_path=test_npz_root,
+            batch_size=4,
+            num_workers=0,
+            input_size=64,
+            shuffle=True,
+        ))
+    utiler = TensorImageUtils()
 
     for i, batch in enumerate(loader):
-        batch = batch[0]
-        print(batch.size())
-        print(batch.sum())
-        utiler.plot_show(batch, nrow=8)
+        images, (clss, values) = batch
+        print(images)
+        print(clss)
+        print(values)
+        print((images == 1).sum())
+        print(images.size())
+        print(images.sum())
+        utiler.plot_show(images, nrow=8)
+        print(loader.dataset.latent_sizes)
         plt.show()
         break
     pass
-
 
 if __name__ == "__main__":
     test_loader()
