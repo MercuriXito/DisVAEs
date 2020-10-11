@@ -1,10 +1,21 @@
 # Disentangled VAE
 
-Pytorch-implementation of several disentangled VAE including:
+Pytorch implementation of VAEs for unsupervised disentangled representation learning.
 
-- [ ] Vanilla VAE
-- [ ] ${\beta}$-VAE
-- [ ] FactorVAE
-- [ ] ${\beta}$-VAE
-- [ ] AnnealVAE
-- [ ] DIP-VAE-I, DIP-VAE-II 
+Implementation Plans:
+
++ Models:
+    - [ ] VAE
+    - [ ] BetaVAE
+    - [ ] AnnealVAE
+    - [ ] DIP-VAE
+    - [ ] beta-TCVAE
+    - [ ] FactorVAE
++ Metrics:
+    - [x] BetaVAE Scores
+    - [ ] FactorVAE Scores
+    - [ ] MIG
+    - [ ] SAP
+
+Currently, only `dsprite` dataset supported. More training results would be released 
+currently.

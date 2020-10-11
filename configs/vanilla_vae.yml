@@ -1,0 +1,31 @@
+model_params: # fill the model params according to different model
+    model_name: "vanilla_vae"
+    latent_dim: 20
+    hidden_channels: [32, 64, 128, 256]
+    in_channels: 1
+    input_size: 64 # int or list
+
+# -------------- data params ----------------
+data_name: dsprites
+data_path: "data/"
+batch_size: 256
+shuffle: true
+grid_nrow: 16
+num_workers: 4
+
+# -------------- training params ----------------
+epochs: 20
+lr: 0.001
+use_cuda: true
+optimizer: adam
+betas: [0.5, 0.999]
+momentum: 0.0
+lr_decay_weight: 0.5
+decay_step: 5
+
+# -------------- save params ----------------
+num_epoch_save: 1
+
+# -------------- resume params ----------------
+resume: false
+resume_folder: ""
