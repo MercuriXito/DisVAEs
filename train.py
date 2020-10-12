@@ -99,16 +99,10 @@ class VAETrainer:
         size = images.size(0)
         images = images.type(torch.float32).to(self.device)
 
-        params = {
-            "M_N": size / self.data_size,
-            "reduction": "sum",
-            "reconst_weight": size,
-        }
-
         # update
         self.optimizer.zero_grad()
         reconst, mu, logvar, z = self.vae(images)
-        losses, additional_records = self.vae.get_loss(images, reconst, mu, logvar, z, self.iter_step, **params)
+        losses, additional_records = self.vae.get_loss(images, reconst, mu, logvar, z, self.iter_step)
         total_loss = losses["total_loss"]
         total_loss.backward()
         self.optimizer.step()

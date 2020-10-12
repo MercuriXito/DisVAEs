@@ -67,8 +67,7 @@ def inference():
     vae.load_state_dict(torch.load(model, map_location="cpu"))
     vae.cuda()
 
-    default_output_dir = test_and_make_dir("logs" + os.sep + "images" + os.sep) # default output directory
-
+    default_output_dir = test_and_make_dir(path + os.sep + "test" + os.sep) # default output directory
     utiler = get_utiler(opt.data_name, default_output_dir)
     for z, image_name in zip(zs, names):
         z = z.cuda()

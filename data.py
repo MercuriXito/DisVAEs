@@ -166,7 +166,7 @@ def get_dspritesnpz_dataloader(root, batch_size, num_workers, resize = 32):
         T.ToPILImage(),
         T.Resize(resize),
         T.ToTensor(),
-        T.Normalize((0.5,),(0.5,)),
+        # T.Normalize((0.5,),(0.5,)), # [0,1] valued instead of [-1,1] valued
     ]))
 
     return DataLoader(trainset, batch_size=batch_size, shuffle=True, num_workers=num_workers, drop_last=True)
@@ -199,10 +199,10 @@ def get_loader(opt):
         ]))
     elif data_name == "dsprites":
         trainset = DSprites_npz(data_root, transform=T.Compose([
-            T.ToPILImage(),
-            T.Resize(resize),
+            # T.ToPILImage(),
+            # T.Resize(resize),
             T.ToTensor(),
-            T.Normalize((0.5,),(0.5,)),
+            # T.Normalize((0.5,),(0.5,)),
         ]))
     else:
         raise NotImplementedError("Not supported dataset: {}".format(data_name))
@@ -217,7 +217,7 @@ def get_utiler(data_name, save_root="./"):
     img_range = (-1,1)
 
     if data_name == "dsprites":
-        pass
+        img_range = (0,1)
     elif data_name == "mnist":
         pass
     else:
@@ -240,7 +240,8 @@ def test_loader():
             input_size=64,
             shuffle=True,
         ))
-    utiler = TensorImageUtils()
+    # utiler = TensorImageUtils()
+    utiler = get_utiler("dsprites")
 
     for i, batch in enumerate(loader):
         images, (clss, values) = batch
