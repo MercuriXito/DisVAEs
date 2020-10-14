@@ -1,0 +1,32 @@
+model_params:
+    model_name: "annealvae"
+    in_channels: 1
+    hidden_channels: [32, 64, 128, 256]
+    latent_dim: 10
+    input_size: 64
+    gamma: 100
+    Cmax: 40
+    interval: 4000
+    reconst_type: bernoulli
+
+data_name: dsprites
+data_path: "/home/victorchen/workspace/Venus/dsprites_ndarray_co1sh3sc6or40x32y32_64x64.npz"
+input_size: 64
+batch_size: 256
+shuffle: true
+grid_nrow: 16
+num_workers: 4
+
+epochs: 100
+lr: 0.001
+use_cuda: true
+optimizer: adam
+betas: [0.5, 0.999]
+momentum: 0.0
+lr_decay_weight: 0.5
+decay_step: 20
+
+num_epoch_save: 1
+
+resume: false 
+resume_folder: ""

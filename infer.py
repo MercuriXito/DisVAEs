@@ -11,7 +11,7 @@ from utils import read_config_from_yaml, json_load, test_and_make_dir
 def get_options():
     parser = argparse.ArgumentParser()
     parser.add_argument("--folder", required=True, type=str, help="training output folder")
-    parser.add_argument("--mode", default="traversal", type=str, help="inference mode")
+    parser.add_argument("--mode", default="traversal_all", type=str, help="inference mode")
     parser.add_argument("--seed", default="-1", type=int, help="random seed, seed < 0 for not using seed")
     parser.add_argument("--zrange", default="2", type=int, help="latent traversal range")
     return parser.parse_args()
@@ -66,6 +66,8 @@ def inference():
 
     if seed >= 0:
         torch.manual_seed(seed)
+    else:
+        print(torch.initial_seed())
 
     # options in training
     config = json_load(path + "config.json")
