@@ -12,6 +12,8 @@ def get_options():
     parser = argparse.ArgumentParser()
     parser.add_argument("--folder", required=True, type=str, help="training output folder")
     parser.add_argument("--mode", default="traversal", type=str, help="inference mode")
+    parser.add_argument("--seed", default="-1", type=int, help="random seed, seed < 0 for not using seed")
+    parser.add_argument("--zrange", default="2", type=int, help="latent traversal range")
     return parser.parse_args()
 
 def get_z(opt, mode):
@@ -26,7 +28,7 @@ def get_z(opt, mode):
     elif mode == "traversal":
         # interpolate on one dimension and preserve the other dimension
         latent_dim = opt.model_params.latent_dim
-        z_range = (-1,1)
+        z_range = (-opt.zrange,opt.zrange)
         zs = []
         names = []
         for i in range(latent_dim):
@@ -38,8 +40,20 @@ def get_z(opt, mode):
             zs.append(z1)
             names.append("traversal_dim_{}.png".format(i+1))
         return zs, names
+    elif mode == "traversal_all":
+
+        latent_dim = opt.model_params.latent_dim
+        z_range = (-opt.zrange,opt.zrange)
+        z_start = torch.randn((1, latent_dim)).repeat(opt.batch_size * latent_dim, 1).type(torch.float32).view(latent_dim, opt.batch_size, -1)
+        # z_start = torch.full((1, latent_dim), z_range[0]).repeat(opt.batch_size * latent_dim, 1).type(torch.float32).view(latent_dim, opt.batch_size, -1)
+        # traverse each seperate component
+        for i in range(latent_dim):
+            interpolate = torch.linspace(*z_range, opt.batch_size)
+            z_start[i,:,i] = interpolate
+
+        return [z_start.view(-1, latent_dim)], ["traversal_all.png"]
     else:
-        raise NotImplementedError("Not supported mode: {}".format(mode))
+        raise NotImplementedError("Not supported inference mode: {}".format(mode))
 
 def inference():
 
@@ -47,9 +61,16 @@ def inference():
     infer_opt = get_options()
     path = infer_opt.folder
     mode = infer_opt.mode
+    seed = infer_opt.seed
+    zrange = infer_opt.zrange
+
+    if seed >= 0:
+        torch.manual_seed(seed)
 
     # options in training
     config = json_load(path + "config.json")
+    for name, key in infer_opt._get_kwargs():
+        config[name] = key
     opt = _MetaOptions.dict2opts(config)
 
     # WARNING: delete test lines below
@@ -57,6 +78,9 @@ def inference():
     opt.grid_nrow = opt.batch_size
     # opt.grid_nrow = 1
     # opt.grid_nrow = 8
+
+    if mode == "traversal_all":
+        opt.grid_nrow = opt.batch_size
 
     # load zs and output picture names
     zs, names = get_z(opt, mode)

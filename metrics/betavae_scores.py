@@ -26,69 +26,10 @@ from utils import partial_forward
 
 from tqdm import tqdm
 
-class FCClassifier(nn.Module):
-    """ one-layer FC Classifier for predicting true factor
-    """
-    def __init__(self, in_feature, num_class):
-        super(FCClassifier, self).__init__()
-        self.net = [nn.Linear(in_feature, num_class)]
-        self.net = nn.Sequential(
-            nn.Linear(in_feature, num_class),
-            nn.Softmax(dim=1)
-        )
+from metrics.utils import FCClassifier, TensorDataset, ArrayDataset, \
+        ClassifierTrainer
 
-    def forward(self, x):
-        return self.net(x)
-
-
-class ArrayDataset(Dataset):
-    def __init__(self, X, y, transform=None, target_transform=None):
-        assert X.shape[0] == y.shape[0]
-        self.X = X
-        self.y = y
-        self.transform = transform
-        self.target_transform = target_transform
-
-    def __len__(self):
-        return self.X.shape[0]
-    
-    def __getitem__(self, idx):
-        x = self.X[idx, :]
-        y = self.y[idx, :]
-        if self.transform:
-            x = self.transform(x)
-        if self.target_transform:
-            y = self.target_transform(y)
-        return x,y
-
-
-def train_val_test_split(train, val_size=0.2, test_size=0.1, shuffle=True, shuffle_seed=1):
-    """ return subsetsampler of trainset, valset, testset
-    """
-
-    # assert isinstance(train, Dataset), \
-    #     "Split only support on class or subclass of torch.utils.data.Dataset"
-
-    datasize = len(train)
-    indices = list(range(datasize))
-
-    other_size = int(np.floor((val_size + test_size) * datasize))
-    test_size = int(np.floor(test_size * datasize))
-
-    if shuffle:
-        np.random.seed(shuffle_seed)
-        np.random.shuffle(indices)
-
-    train_indices, other_indices = indices[other_size:], indices[:other_size]
-    test_indices, val_indices = other_indices[:test_size], other_indices[test_size:]
-
-    train_sampler = SubsetRandomSampler(train_indices)
-    val_sampler = SubsetRandomSampler(val_indices)
-    test_sampler = SubsetRandomSampler(test_indices)
-
-    return train_sampler, val_sampler, test_sampler
-
-
+# TODO: currently, this score could only used on dsprites
 class BetaVAEScore:
     def __init__(self, 
             model, 
@@ -101,8 +42,8 @@ class BetaVAEScore:
         self.dataset = dataset
         self.L = L
         self.N = N
-        self.num_latents = 5
         self.latent_sizes = dataset.latent_sizes
+        self.num_latents = len(self.latent_sizes) - 1
         self.latent_bases = np.concatenate((self.latent_sizes[::-1].cumprod()[::-1][1:],
             np.array([1,])))
         self.partial_forward_batch_size = 256
@@ -133,17 +74,19 @@ class BetaVAEScore:
         M = self.N * self.L * 2
         ys = torch.randint(0, self.num_latents, (self.N, 1)) # color is not used
         Xs = []
-        for y in tqdm(ys):
+        for i, y in enumerate(tqdm(ys)):
             # sample 2L images for each y in ys
             latents = self.sample_latent(self.L * 2)
-            latents[:, y+1] = 0 # TODO: always assign 0 is not good?
+            latent_range = self.latent_sizes[y+1] # ignore color
+            latent_indices = np.random.randint(0, latent_range, (self.L, 1)).repeat(2, axis=1).reshape(-1, )
+            latents[:, y+1] = latent_indices # TODO: right now I haven't promise to keep other latents different.
             images = self.dataset.images[self.latent_to_index(latents)]
             images = torch.tensor(images, dtype=torch.float32).unsqueeze(dim=1)
 
             # encode
             with torch.no_grad():
                 latents = partial_forward(net_forward, images, self.partial_forward_batch_size)
-            latent1, latent2 = latents.view(2, self.L, -1)
+            latent1, latent2 = latents.view(self.L, 2, -1).transpose(1,0)
             diff = torch.abs(latent1 - latent2).mean(dim=0)
             diff = diff.detach().cpu().numpy().reshape(1, -1)
             Xs.append(diff)
@@ -151,7 +94,7 @@ class BetaVAEScore:
         ys = ys.detach().cpu().numpy().reshape(-1, 1)
         Xs = torch.tensor(Xs, dtype=torch.float32)
         ys = torch.tensor(ys, dtype=torch.long)
-        self.created_dataset = [Xs, ys]
+        self.created_dataset = [Xs, ys] # mind Xs and ys are not shuffled.
 
     def latent_to_index(self, latents):
         return np.dot(latents, self.latent_bases).astype(int)
@@ -167,96 +110,13 @@ class BetaVAEScore:
         print("creating dataset")
         self.create_dataset()
         Xs, ys = self.created_dataset
-        dataset = ArrayDataset(Xs, ys)
+        dataset = TensorDataset(Xs, ys)
 
         print("Training low capacity classifier")
         classifier = FCClassifier(self.latent_dim, self.num_latents)
+        # for ground-truth labels, the classifer should reach 100% accuracy
+        # classifier = FCClassifier(len(self.latent_sizes)-1, self.num_latents) # for test
         trainer = ClassifierTrainer(dataset, classifier)
         trainer.train()
         score = trainer.test_validate()
         return score
-
-
-class ClassifierTrainer:
-    """ simple classifier trainer """
-    def __init__(self, 
-            dataset,
-            model,
-            epochs=100,
-            lr=0.01):
-
-        self.epochs = epochs
-        self.lr = lr
-
-        self.model = model
-        self.dataset = dataset
-        self.val_size = 0.2
-        self.test_size = 0.1
-        self.train_sampler, self.val_sampler, self.test_sampler = train_val_test_split(
-                dataset, val_size=self.val_size, test_size=self.test_size)
-        self.val_size *= len(dataset)
-        self.test_size *= len(dataset)
-
-        self.batch_size = 256
-        self.num_workers = 4
-
-    def _init_train(self):
-        self.optimizer = optim.Adam(self.model.parameters())
-        self.criterion = nn.CrossEntropyLoss()
-
-    def train(self):
-        self._init_train()
-        loader = self.get_dataloader("train")
-        val_loader = self.get_dataloader("val")
-        starttime = time.clock()
-        for epoch in range(self.epochs):
-            print("Epoch: {}/{}".format(epoch + 1, self.epochs))
-            bar = tqdm(loader)
-            for i, (X, y) in enumerate(bar):
-                self.optimizer.zero_grad()
-                ys = self.model(X)
-                y = y.view(-1)
-                loss = self.criterion(ys, y)
-                loss.backward()
-                self.optimizer.step()
-                bar.set_description("[loss: %3.8f ]" %(loss.item()))
-            print("Validating")
-            self.validate(self.get_dataloader("val"), self.val_size)
-        endtime = time.clock()
-        consume_time = endtime - starttime
-        print("Training Complete, Using %d min %d s" %(consume_time // 60,consume_time % 60))
-
-    def validate(self, loader, loader_size):
-        training = self.model.training
-        self.model.eval()
-        correct = 0
-        total = loader_size
-        for i, (X, y) in enumerate(loader):
-            ys = self.model(X)
-            predict = torch.argmax(ys, dim=1)
-            y = y.view(-1,)
-            correct += (predict == y).sum()
-        accuracy = correct / float(total)
-        print("Accuracy: {}".format(accuracy))
-        self.model.train(training)
-        return accuracy
-
-    def test_validate(self):
-        return self.validate(
-            self.get_dataloader("all"), len(self.dataset)
-        )
-
-    def get_dataloader(self, mode):
-        sampler = None
-        if mode == "all":
-            return DataLoader(self.dataset, batch_size=self.batch_size,
-            num_workers=self.num_workers, shuffle=True)
-
-        if mode == "train":
-            sampler = self.train_sampler
-        elif mode == "val":
-            sampler = self.val_sampler
-        elif mode == "test":
-            sampler = self.test_sampler
-        return DataLoader(self.dataset, batch_size=self.batch_size, 
-                num_workers=self.num_workers, sampler=sampler)
