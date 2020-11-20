@@ -11,6 +11,8 @@ class VanillaVAE(BaseVAE):
             hidden_channels: list, 
             latent_dim: int, 
             input_size,
+            kl_weight=1,
+            use_sep_weight=False,
             reconst_type="gaussian",
             **kws):
 
@@ -24,6 +26,8 @@ class VanillaVAE(BaseVAE):
         self.hidden_channels = hidden_channels
         self.latent_dim = latent_dim
         self.reconst_type = reconst_type
+        self.kl_weight = kl_weight
+        self.use_sep_weight = use_sep_weight
 
         # Encoder Net
         modules = []
@@ -78,6 +82,16 @@ class VanillaVAE(BaseVAE):
         ))
         self.dNet = nn.Sequential(*modules)
 
+        # simple additional ideas
+        self.sep_weight = None
+        if self.use_sep_weight:
+            sep_weight = torch.full((self.latent_dim, ), self.kl_weight)
+            num_true_factor = 5
+            for i in range(num_true_factor):
+                sep_weight[i] *= 1 / ((i + 1) * 5)
+            self.sep_weight = nn.Parameter(sep_weight.type(torch.float32)).requires_grad_(False)
+            print(self.sep_weight)
+
     def encode(self, original_x):
         features = self.eNet(original_x).view(original_x.size(0), -1)
         logvar = self.logvar_net(features)
@@ -105,7 +119,7 @@ class VanillaVAE(BaseVAE):
         """ Basic ELBO of VAE """
 
         reconst_loss = _reconst_loss(reconst, original_x, self.reconst_type)
-        kl_loss = _kl_divergence_loss(mu, logvar)
+        kl_loss = _kl_divergence_loss(mu, logvar, sep_weight=self.sep_weight)
 
         # addtional recorder
         recorder = {}
@@ -117,8 +131,10 @@ class VanillaVAE(BaseVAE):
         loss = reconst_loss +  kl_loss
         return {"total_loss": loss, "kl_loss": kl_loss, "reconst_loss": reconst_loss}, recorder
 
-    def infer(self, batch_size):
+    def infer(self, batch_size, seed=None):
         """ random sample and infer """
+        if seed is not None:
+            torch.manual_seed(seed)
 
         device = next(self.eNet.parameters()).device
         z = torch.randn((batch_size, self.latent_dim)).to(device)
